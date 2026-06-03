@@ -3,10 +3,181 @@
 <head>
   <meta charset="UTF-8">
   <title>Ant Colony Simulator</title>
+  <style>
+    body { margin:0; background:#17110b; color:#f4ead0; font-family:Arial,sans-serif; }
+    header { padding:12px 18px; background:#24180f; }
+    h1 { margin:0; }
+    #hud { padding:8px 18px; background:#302116; font-weight:bold; }
+    canvas { display:block; margin:0 auto; background:#3b2b19; border-top:2px solid #6c4a2b; }
+  </style>
 </head>
 <body>
+<header>
   <h1>Ant Colony Simulator</h1>
-  <p>GitHub Pages is working.</p>
-  <p>The playable browser version is coming next.</p>
+  <p>Left click food · Right click spawn ant · Space spider</p>
+</header>
+<div id="hud">Loading...</div>
+<canvas id="game" width="1100" height="700"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+const W = canvas.width, H = canvas.height;
+const nest = {x:170,y:520};
+const queen = {x:155,y:560,hp:100};
+let foodStore = 10;
+let ants = [];
+let foods = [];
+let pher = [];
+let spiders = [];
+
+function rand(a,b){ return Math.random()*(b-a)+a; }
+function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+class Ant {
+  constructor() {
+    this.x = nest.x + rand(-20,20);
+    this.y = nest.y + rand(-20,20);
+    this.vx = rand(-1,1);
+    this.vy = rand(-1,1);
+    this.carry = false;
+    this.hp = 100;
+    this.role = Math.random() < .2 ? "soldier" : "worker";
+  }
+
+  moveTo(t) {
+    let dx=t.x-this.x, dy=t.y-this.y;
+    let l=Math.hypot(dx,dy)||1;
+    let speed=this.role==="soldier"?1.4:1.8;
+    this.vx=this.vx*.9+(dx/l)*speed*.1;
+    this.vy=this.vy*.9+(dy/l)*speed*.1;
+    this.x=clamp(this.x+this.vx,4,W-4);
+    this.y=clamp(this.y+this.vy,4,H-4);
+  }
+
+  wander() {
+    if(Math.random()<.03){
+      let a=Math.random()*Math.PI*2;
+      this.vx=Math.cos(a)*1.5;
+      this.vy=Math.sin(a)*1.5;
+    }
+    this.x=clamp(this.x+this.vx,4,W-4);
+    this.y=clamp(this.y+this.vy,4,H-4);
+  }
+
+  update() {
+    if(this.carry){
+      this.moveTo(nest);
+      pher.push({x:this.x,y:this.y,t:255});
+      if(dist(this,nest)<25){
+        this.carry=false;
+        foodStore++;
+      }
+      return;
+    }
+
+    let close = foods.filter(f=>dist(this,f)<170).sort((a,b)=>dist(this,a)-dist(this,b))[0];
+    if(close){
+      this.moveTo(close);
+      if(dist(this,close)<9){
+        foods.splice(foods.indexOf(close),1);
+        this.carry=true;
+      }
+      return;
+    }
+
+    let trail = pher.filter(p=>dist(this,p)<70).sort((a,b)=>b.t-a.t)[0];
+    if(trail && Math.random()<.55) this.moveTo(trail);
+    else this.wander();
+  }
+}
+
+class Spider {
+  constructor(x,y){
+    this.x=x; this.y=y; this.vx=rand(-1,1); this.vy=rand(-1,1);
+  }
+  update(){
+    if(ants.length){
+      let target=ants.slice().sort((a,b)=>dist(this,a)-dist(this,b))[0];
+      if(dist(this,target)<220){
+        let dx=target.x-this.x, dy=target.y-this.y;
+        let l=Math.hypot(dx,dy)||1;
+        this.vx=this.vx*.9+(dx/l)*.12;
+        this.vy=this.vy*.9+(dy/l)*.12;
+        if(dist(this,target)<15) target.hp-=1.5;
+      }
+    }
+    this.x=clamp(this.x+this.vx,4,W-4);
+    this.y=clamp(this.y+this.vy,4,H-4);
+  }
+}
+
+for(let i=0;i<40;i++) ants.push(new Ant());
+for(let i=0;i<30;i++) foods.push({x:rand(350,1050),y:rand(50,650)});
+
+canvas.oncontextmenu = e => e.preventDefault();
+
+canvas.onmousedown = e => {
+  let r=canvas.getBoundingClientRect();
+  let p={x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};
+  if(e.button===0) foods.push(p);
+  if(e.button===2 && foodStore>=3){ ants.push(new Ant()); foodStore-=3; }
+};
+
+window.onkeydown = e => {
+  if(e.code==="Space"){
+    e.preventDefault();
+    spiders.push(new Spider(rand(200,1000),rand(80,600)));
+  }
+};
+
+function circle(x,y,r,c){
+  ctx.fillStyle=c;
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fill();
+}
+
+function draw(){
+  ctx.fillStyle="#2d652f";
+  ctx.fillRect(0,0,W,H/2);
+  ctx.fillStyle="#3b2b19";
+  ctx.fillRect(0,H/2,W,H/2);
+
+  pher.forEach(p=>circle(p.x,p.y,2,"rgba(80,160,255,.45)"));
+  foods.forEach(f=>circle(f.x,f.y,7,"#4bd760"));
+
+  circle(nest.x,nest.y,35,"#79512e");
+  circle(queen.x,queen.y,16,"#221010");
+
+  spiders.forEach(s=>{
+    circle(s.x,s.y,13,"#502060");
+    circle(s.x,s.y,5,"#130515");
+  });
+
+  ants.forEach(a=>{
+    circle(a.x,a.y,a.role==="soldier"?6:5,"#111");
+    if(a.carry) circle(a.x,a.y-8,3,"#4bd760");
+  });
+
+  hud.textContent = `Food: ${foodStore} | Ants: ${ants.length} | Spiders: ${spiders.length} | Queen HP: ${Math.floor(queen.hp)}`;
+}
+
+function loop(){
+  pher.forEach(p=>p.t-=1.3);
+  pher=pher.filter(p=>p.t>0);
+
+  ants.forEach(a=>a.update());
+  spiders.forEach(s=>s.update());
+  ants=ants.filter(a=>a.hp>0);
+
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
 </body>
 </html>
